@@ -8,7 +8,7 @@
 
 # Set up
 
-#setwd("~")
+setwd("~/Desktop/drake/STAT172/final_project")
 
 library(acs)
 
