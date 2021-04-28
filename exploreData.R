@@ -15,12 +15,3 @@ data = read.csv("~/Desktop/drake/STAT172/final_project/cps_stat172.csv", strings
 View(data)
 
 
-# education # of people with at least associates
-# everything else is just counts of groups
-# treat married as categorical
-# 
-
-#TODO:
-  # Change numerics to categorical
-  # Clustering? 
-  # Random Forest? 
