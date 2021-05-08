@@ -1,39 +1,107 @@
 rm(list = ls())
 
 #read in cps
-cps = read.csv("~/Desktop/drake/STAT172/final_project/cps_stat172.csv", stringsAsFactors = T)
+cps = read.csv("cps_stat172.csv", stringsAsFactors = T)
 
 ################################################
-###-------cps PREPARATION----------------------
+###-------PREPARATION---------------------------
 ################################################
 
+# Call libraries needed for plotting & Color Palettes
+library(ggplot2)
+library(reshape2)
+library(RColorBrewer)
+
+str(cps2)
+summary(cps)
+# THERE ARE 160 NA's in the data that need to be removed. 
 cps <- cps[!is.na(cps$fsecurity),]
 # THIS SHOULD REMOVE ALL NA's from fsecurity.
+# WE ALSO NEED TO REMOVE THE X.1, X, and ID rows from the dataset
+cps2 = subset(cps, select = -c(X.1, X, id))
 
-# WANT TO LOOK AT THE VARIABLES
-# SINCE THEY ARE ALL CATEGORICAL I WILL LOOK AT THE HISTOGRAMS
+# I NEED TO CHANGE THE RESPONSE VARIABLE AND DISABILITY INTO CATEGORICAL VARIABLES
+cps2$disability_cat = ifelse(cps2$disability > 0, "Disability", "No_Disability")
+cps2$disability_cat = as.factor(cps2$disability_cat)
+cps2$fsecurity_cat = ifelse(cps2$fsecurity > 0, "yes", "no")
+cps2$fsecurity_cat = as.factor(cps2$fsecurity_cat)
 
-# NEED TO FIX THESE, AND CHANGE CERTAIN VARIABLES TO CATEGORICAL.
-cps <- within(cps, {
-  disability_cat <- NA # need to initialize variable
-  disability_cat[disability = 0] <- "No_Disability"
-  disability_cat[disability = 1] <- "Disability"
-} )
 
-cps$disability_cat <- factor(cps$disability_cat, levels = c("No_Disability", "Disability"))
+################################################
+###-------VISUALIZATION-------------------------
+################################################
 
-cps$disability_cat = ifelse(cps$disability > 0, "Disability", "No_Disability")
-cps$disability_cat = as.factor(cps$disability_cat)
+# CREATE BARPLOTS OF THE CATEGORICAL VARIABLES TO OBSERVE DISTRIBUTION OF DATA AMONG CATEGORIES
+ggplot(data = cps2, aes (x = fsecurity_cat))+geom_bar() + geom_text(stat = 'count',aes(label=..count..), vjust = -1)
+ggplot(data = cps2, aes (x = disability_cat))+geom_bar() + geom_text(stat = 'count',aes(label=..count..), vjust = -1)
 
-cps$fsecurity_cat = ifelse(cps$fsecurity > 0, "yes", "no")
-cps$fsecurity_cat = as.factor(cps$fsecurity_cat)
 
-# Look at unique values for cps validation of each column
-unique(cps$fsecurity) # NA values need to be removed and this needs to be binary
-unique(cps$hhsize) # there are fractional values -- what do they mean? 
+# CREATE HISTOGRAMS TO SHOW PROPORTIONALITY AMONG NUMERIC VARIABLES
+ggplot(data = cps2) + 
+  geom_histogram(aes(x = hhsize, fill = fsecurity_cat), position = 'fill', binwidth = 1)  +  
+  ggtitle("Food Security as Household Size Increase") + 
+  labs(x = "Household Size", y = "Proportion") + 
+  scale_fill_grey("Food Insecure") +
+  theme_bw()
+ggplot(data = cps2) +
+  geom_histogram(aes(x = elderly, fill = fsecurity_cat), position = 'fill', binwidth = 1)  +  
+  ggtitle("Food Security as Elders Within Household Increase") + 
+  labs(x = "Elderly", y = "Proportion") + 
+  scale_fill_grey("Food Insecure") +
+  theme_bw()
 
-cps2 = subset(cps, select = -c(fsecurity, disability, X.1, X, id))
-View(cps2)
+ggplot(data = cps2) + 
+  geom_histogram(aes(x = hhsize, fill = fsecurity_cat), position = 'fill', binwidth = 1)  +  
+  ggtitle("Food Security as Household Size Increase") + 
+  labs(x = "Household Size", y = "Proportion") + 
+  scale_fill_grey("Food Insecure") +
+  theme_bw()
+ggplot(data = cps2) +
+  geom_histogram(aes(x = elderly, fill = fsecurity_cat), position = 'fill', binwidth = 1)  +  
+  ggtitle("Food Security as Elders Within Household Increase") + 
+  labs(x = "Elderly", y = "Proportion") + 
+  scale_fill_grey("Food Insecure") +
+  theme_bw()
+
+################################################
+###-------CLUSTERING----------------------------
+################################################
+
+cps_X = subset(cps2, select = -c(fsecurity_cat,disability_cat, fsecurity, disability))
+# WE ALSO NEED TO STANDARDIZE THE VARIABLES IN ORDER TO LIMIT CONTROL, KEEP IT 
+# EVEN BETWEEN ALL.
+cps_stand = apply(cps_X, 2, function(x){(x - mean(x))/sd(x)})
+summary(cps_stand)  
+wss = (nrow(cps_stand)-1)*sum(apply(cps_stand,2,var))
+for (i in 2:15) {
+  wss[i] = sum(kmeans(cps_stand, centers = i)$withinss)}
+plot(1:15, wss, type = "b", xlab = "Number of clusters", main = "Elbow Plot")
+# MAKES ME THINK THAT 4 WOULD BE A GOOD POINT
+# WE WILL NOW DO HIERARCHICAL CLUSTERING
+cps_dist = dist(cps_stand, method = "euclidean")
+cps_clust = hclust(cps_dist, method = "ward.D")
+plot(cps_clust)
+
+rect.hclust(cps_clust, k = 4, border = "red")
+cps_kmeans = kmeans(cps_stand, 4)
+str(cps_kmeans)
+cps_X$km_cluster = as.factor(cps_kmeans$cluster)
+cps_long = melt(cps_X, id.vars = c("km_cluster"))
+View(cps_long)
+
+ggplot(data = cps_long) + 
+  geom_boxplot(aes (x = km_cluster, y = value, fill = km_cluster)) +
+  facet_wrap(~variable, scales = "free") + 
+  scale_fill_brewer(palette = "Blues")
+display.brewer.all(colorblindFriendly = T)
+# I WILL NOW CREATE A HEATMAP
+cps2$groups = as.factor(cutree(cps_clust, k = 4))
+rownames(cps_stand) = paste(cps2$groups, ": ", cps$Country)
+heatmap(as.matrix(cps_stand),
+        col = paste("grey", 1:99, sep = ""),
+        hclustfun = function(x){hclust(x, method = "ward.D")})
+
+
 
 ################################################
 ###-------Decision Tree-------------------------
@@ -43,6 +111,8 @@ library(rpart)
 library(rpart.plot)
 library(ggplot2)
 library(pROC)
+
+cps2 = subset(cps2, select = -(fsecurity))
 
 #set seed to ensure reproducibility
 RNGkind(sample.kind = "default") #sets the sampling algorithm
@@ -61,8 +131,9 @@ set.seed(27892789) #again, for reproducibility
 tree = rpart(fsecurity_cat ~ .,
              data = train.df,
              method = "class",
-             control = rpart.control(cp = 0.0001, minsplit = 1))
+             control = rpart.control(cp = 0.00001, minsplit = 1))
 
+# this full tree visualization might take a while to run, FYI
 rpart.plot(tree, box.palette = "Blues")
 
 printcp(tree)
@@ -74,7 +145,10 @@ printcp(tree)
 ################################################
 
 library(randomForest)
+library(caret)
+
 #Next, we will try a random forest and see if we can get a useful model
+set.seed(27892789)
 forest = randomForest(fsecurity_cat ~ .,
                       data = train.df, #TRAINING DATA
                       ntree = 1000, #fit B = 1000 separate classification trees
@@ -123,6 +197,7 @@ for (idx in 1:length(mtry)){
 qplot(m, OOB_err_rate, geom = c("line", "point"), data = keeps2) + 
   theme_bw() + labs(x = "m (mtry) value", y = "OOB error rate")
 
+set.seed(27892789)
 # final forest uses mtry = 1
 final_forest<- randomForest(fsecurity_cat ~ .,
                             data = train.df, 
@@ -131,14 +206,63 @@ final_forest<- randomForest(fsecurity_cat ~ .,
                             importance = TRUE) # now we can make variable importance plot
 
 
-################################################
-###-------PREDICTION      ----------------------
-################################################
-
 #make a column of predictions on the test set
 test.df$forest_pred <- predict(final_forest, test.df, type = "class")
 #confusion matrix where pi* = 0.5. Forest always guesses "no"!
 table(test.df$forest_pred, test.df$fsecurity_cat)
+
+# Construct a confusion matrix visualization
+# code for this courtesy of Cybernetic at 
+# https://stackoverflow.com/questions/23891140/r-how-to-visualize-confusion-matrix-using-the-caret-package/42940553
+cm <- confusionMatrix(data = test.df$forest_pred, reference = test.df$fsecurity_cat)
+cm
+draw_confusion_matrix <- function(cm) {
+  
+  layout(matrix(c(1,1,2)))
+  par(mar=c(2,2,2,2))
+  plot(c(100, 345), c(300, 450), type = "n", xlab="", ylab="", xaxt='n', yaxt='n')
+  title('CONFUSION MATRIX', cex.main=2)
+  
+  # create the matrix 
+  rect(150, 430, 240, 370, col='#3F97D0')
+  text(195, 435, 'Food Secure', cex=1.2)
+  rect(250, 430, 340, 370, col='#F7AD50')
+  text(295, 435, 'Not Food Secure', cex=1.2)
+  text(125, 370, 'Predicted', cex=1.3, srt=90, font=2)
+  text(245, 450, 'Actual', cex=1.3, font=2)
+  rect(150, 305, 240, 365, col='#F7AD50')
+  rect(250, 305, 340, 365, col='#3F97D0')
+  text(140, 400, 'Food Secure', cex=1.2, srt=90)
+  text(140, 335, 'Not Food Secure', cex=1.2, srt=90)
+  
+  # add in the cm results 
+  res <- as.numeric(cm$table)
+  text(195, 400, res[1], cex=1.6, font=2, col='white')
+  text(195, 335, res[2], cex=1.6, font=2, col='white')
+  text(295, 400, res[3], cex=1.6, font=2, col='white')
+  text(295, 335, res[4], cex=1.6, font=2, col='white')
+  
+  # add in the specifics 
+  plot(c(100, 0), c(100, 0), type = "n", xlab="", ylab="", main = "DETAILS", xaxt='n', yaxt='n')
+  text(10, 85, names(cm$byClass[1]), cex=1.2, font=2)
+  text(10, 70, round(as.numeric(cm$byClass[2]), 3), cex=1.2)
+  text(30, 85, names(cm$byClass[2]), cex=1.2, font=2)
+  text(30, 70, round(as.numeric(cm$byClass[1]), 3), cex=1.2)
+  text(50, 85, names(cm$byClass[5]), cex=1.2, font=2)
+  text(50, 70, round(as.numeric(cm$byClass[5]), 3), cex=1.2)
+  text(70, 85, names(cm$byClass[6]), cex=1.2, font=2)
+  text(70, 70, round(as.numeric(cm$byClass[6]), 3), cex=1.2)
+  text(90, 85, names(cm$byClass[7]), cex=1.2, font=2)
+  text(90, 70, round(as.numeric(cm$byClass[7]), 3), cex=1.2)
+  
+  # add in the accuracy information 
+  text(30, 35, names(cm$overall[1]), cex=1.5, font=2)
+  text(30, 20, round(as.numeric(cm$overall[1]), 3), cex=1.4)
+  text(70, 35, names(cm$overall[2]), cex=1.5, font=2)
+  text(70, 20, round(as.numeric(cm$overall[2]), 3), cex=1.4)
+}
+
+draw_confusion_matrix(cm)
 
 # Confusion matrix before pi-hat optimization:
 #   no yes
@@ -159,8 +283,16 @@ plot(rocCurve,print.thres = TRUE, print.auc=TRUE)
 
 # This adjusts the predicts based on the selected pi_hat, will probably experiment more. 
 # There is clearly a class imbalance problem 
-test.df$forest_pred = ifelse(pi_hat > 0.008, "yes", "no")
+test.df$forest_pred = as.factor(ifelse(pi_hat > 0.028, "yes", "no"))
 table(test.df$forest_pred, test.df$fsecurity_cat)
+
+cm2 <- confusionMatrix(data = test.df$forest_pred, reference = test.df$fsecurity_cat)
+draw_confusion_matrix(cm2)
+#    no yes
+#no  68   4
+#yes 11   3
+
+# accuracy = 0.82558
 
 # we would predict "no food security" 60.8% of the time that there is actually no food security (TN = .608)
 # we would predict "yes" 71.4% of the time that they actually have food security. (TP = .714)
@@ -169,4 +301,33 @@ table(test.df$forest_pred, test.df$fsecurity_cat)
 
 # most important variables are "employed", "married", "elderly", and "hhsize". "education" is the least important!
 varImpPlot(final_forest, type = 1)
+
+################################################
+###-------GLM-----------------------------------
+################################################
+
+fs <- subset(data, select = -c(1,2,3))
+View(fs)
+
+# Making binary variables out of food security and disability
+fs$fsecurity[fs$fsecurity > 0] <- 1
+fs$disability[fs$disability > 0] <- 1
+
+# First model with every variable
+model1 <- glm(fs$fsecurity ~ fs$hhsize + fs$female + fs$kids + fs$elderly + fs$black + fs$hispanic + fs$education + fs$employed + fs$married + fs$disability, family=binomial(link="logit"))
+# summary(model1)
+# BIC(model1)
+# 296.4817
+
+# Second model using employed, married, elderly, hhsize
+model2 <- glm(fs$fsecurity ~ fs$hhsize + fs$elderly + fs$employed + fs$married, family=binomial(link="logit"))
+summary(model2)
+confint(model2)
+BIC(model2)
+# 285.8279
+
+# Residual plots
+glm.diag.plots(model1, glm.diag(model1))
+glm.diag.plots(model2, glm.diag(model2))
+
 
