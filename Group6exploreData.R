@@ -1,3 +1,5 @@
+# Group 6 R Code
+
 rm(list = ls())
 
 #read in cps
@@ -82,6 +84,7 @@ cps_dist = dist(cps_stand, method = "euclidean")
 cps_clust = hclust(cps_dist, method = "ward.D")
 plot(cps_clust)
 
+# This creates red rectangles to create clusters for the dendrogram
 rect.hclust(cps_clust, k = 4, border = "red")
 cps_kmeans = kmeans(cps_stand, 4)
 str(cps_kmeans)
@@ -89,6 +92,7 @@ cps_X$km_cluster = as.factor(cps_kmeans$cluster)
 cps_long = melt(cps_X, id.vars = c("km_cluster"))
 View(cps_long)
 
+# This will create boxplots for the clusters among the specified variables in cps_X
 ggplot(data = cps_long) + 
   geom_boxplot(aes (x = km_cluster, y = value, fill = km_cluster)) +
   facet_wrap(~variable, scales = "free") + 
@@ -112,7 +116,7 @@ library(rpart.plot)
 library(ggplot2)
 library(pROC)
 
-cps2 = subset(cps2, select = -(fsecurity))
+cps2 = subset(cps2, select = -c(fsecurity, disability))
 
 #set seed to ensure reproducibility
 RNGkind(sample.kind = "default") #sets the sampling algorithm
@@ -162,16 +166,10 @@ forest
 #no  294  11  0.03606557
 #yes  34   3  0.91891892
 
-(294 + 3)/(294 + 3 + 11 + 34) #accuracy = 0.8684211
-1-0.8684211 #OOB error rate = 0.1315789
-
-# accuracy is pretty good, but we'll want to check specificity, sensitivity, false positive. 
-# This scenario seems to favor false positives (falsely predict not food secure) vs false negatives since we don't want to unfairly 
-# deprive people of needed assistance due to modeling errors
-
-34 / (34 + 294) # False Positive rate = 0.1036585
-294 / (294 + 34) # Specificity (true negatives) = 0.8963415
-294 / (294 + 3) # sensitivity (true positives) = 0.989899
+#Confusion matrix:
+#  no yes class.error
+#no  295  10  0.03278689
+#yes  34   3  0.91891892
 
 # TUNING
 mtry <- c(1:10)
@@ -266,8 +264,8 @@ draw_confusion_matrix(cm)
 
 # Confusion matrix before pi-hat optimization:
 #   no yes
-#no  79   6
-#yes  0   1
+#no  79   7
+#yes  0   0
 
 pi_hat <- predict(final_forest, test.df, type = "prob")[,"yes"] 
 
@@ -283,21 +281,16 @@ plot(rocCurve,print.thres = TRUE, print.auc=TRUE)
 
 # This adjusts the predicts based on the selected pi_hat, will probably experiment more. 
 # There is clearly a class imbalance problem 
-test.df$forest_pred = as.factor(ifelse(pi_hat > 0.028, "yes", "no"))
+test.df$forest_pred = as.factor(ifelse(pi_hat > 0.085, "yes", "no"))
 table(test.df$forest_pred, test.df$fsecurity_cat)
 
 cm2 <- confusionMatrix(data = test.df$forest_pred, reference = test.df$fsecurity_cat)
+# Confusion matrix validates ROC curve result and shows improvement
+# However, if we wanted to minimize our false negative rate (guessing "food secure" when people are not)
+# we may need to smaller, more aggresive pi_hat. 
 draw_confusion_matrix(cm2)
-#    no yes
-#no  68   4
-#yes 11   3
 
-# accuracy = 0.82558
 
-# we would predict "no food security" 60.8% of the time that there is actually no food security (TN = .608)
-# we would predict "yes" 71.4% of the time that they actually have food security. (TP = .714)
-# hard to say if this was better than the standard cutoff of pi* = 0.5; we are producing false negatives
-# in order to get true positives (we had none before)
 
 # most important variables are "employed", "married", "elderly", and "hhsize". "education" is the least important!
 varImpPlot(final_forest, type = 1)
@@ -306,28 +299,37 @@ varImpPlot(final_forest, type = 1)
 ###-------GLM-----------------------------------
 ################################################
 
-fs <- subset(data, select = -c(1,2,3))
-View(fs)
+rm(list = ls())
+
+library(boot)
+library(rpart)
+library(rpart.plot)
+library(ggplot2)
+library(pROC)
+library(RColorBrewer)
+
+fs <- subset(cps, select = -c(1,2,3))
 
 # Making binary variables out of food security and disability
 fs$fsecurity[fs$fsecurity > 0] <- 1
-fs$disability[fs$disability > 0] <- 1
+
+fs$disability_cat = ifelse(fs$disability > 0, "Disability", "No_Disability")
+fs$disability_cat = as.factor(fs$disability_cat)
+
+
 
 # First model with every variable
-model1 <- glm(fs$fsecurity ~ fs$hhsize + fs$female + fs$kids + fs$elderly + fs$black + fs$hispanic + fs$education + fs$employed + fs$married + fs$disability, family=binomial(link="logit"))
+model1 <- glm(fs$fsecurity ~ fs$hhsize + fs$female + fs$kids + fs$elderly + fs$black + fs$hispanic + fs$education + fs$employed + fs$married + fs$disability_cat, family=binomial(link="logit"))
 # summary(model1)
 # BIC(model1)
-# 296.4817
+# 296.5758
 
-# Second model using employed, married, elderly, hhsize
-model2 <- glm(fs$fsecurity ~ fs$hhsize + fs$elderly + fs$employed + fs$married, family=binomial(link="logit"))
+# Second model using employed, disability_cat, elderly, hhsize
+model2 <- glm(fs$fsecurity ~ fs$hhsize + fs$elderly + fs$employed + fs$disability_cat, family=binomial(link="logit"))
 summary(model2)
 confint(model2)
 BIC(model2)
-# 285.8279
+# 283.8745
 
-# Residual plots
-glm.diag.plots(model1, glm.diag(model1))
-glm.diag.plots(model2, glm.diag(model2))
-
+anova(model2, test = "Chisq")
 
