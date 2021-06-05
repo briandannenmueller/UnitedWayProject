@@ -1,5 +1,5 @@
 # Group 6 R Code
-
+#Brian Dannenmueller, Zohaib Hussain, David Holmes, and Ryan Holt
 rm(list = ls())
 
 #read in cps
